@@ -1,0 +1,84 @@
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    networks:
+      - app-network
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    ports:
+      - "9092:9092"
+    networks:
+      - app-network
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    depends_on:
+      - zookeeper
+
+  springboot-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: springboot-app
+    ports:
+      - "8080:8080"
+    networks:
+      - app-network
+    environment:
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_DATA_MONGODB_URI: mongodb://mongodb:27017/streamingDB
+    depends_on:
+      - kafka
+      - mongodb
+
+  mongodb:
+    image: mongo:6.0
+    container_name: mongodb
+    ports:
+      - "27017:27017"
+    networks:
+      - app-network
+    volumes:
+      - mongo-data:/data/db
+    
+  # Spark master service for cluster management
+  spark-master:
+    image: bitnami/spark:3.4.0  # Update the Spark version here
+    environment:
+      - SPARK_MODE=master  # Configure Spark in master mode
+    ports:
+      - "7077:7077"  # Port for Spark master
+      - "8082:8080"  # Spark master web UI port
+    networks:
+      - app-network  # Connect to the Kafka network
+
+  # Spark worker service for distributed computing
+  spark-worker:
+    image: bitnami/spark:3.4.0  # Update the Spark version here
+    environment:
+      - SPARK_MODE=worker  # Configure Spark in worker mode
+      - SPARK_MASTER_URL=spark://spark-master:7077  # Point to the Spark master
+    depends_on:
+      - spark-master  # Start Spark worker only after Spark master is running
+    ports:
+      - "8081:8081"  # Spark worker web UI port
+    networks:
+      - app-network  # Connect to the Kafka network
+
+volumes:
+  mongo-data:
+
+networks:
+  app-network:
+    driver: bridge
